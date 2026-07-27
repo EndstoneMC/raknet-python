@@ -459,8 +459,10 @@ NB_MODULE(_raknet, m)
             [](RakPeer &self, const char *host, unsigned short remote_port, const nb::bytes &password,
                unsigned connection_socket_index, unsigned send_connection_attempt_count,
                unsigned time_between_send_connection_attempts_ms, RakNet::TimeMS timeout_time) {
+                const char *password_data = password.c_str();
+                int password_length = static_cast<int>(password.size());
                 nb::gil_scoped_release release;
-                return self->Connect(host, remote_port, password.c_str(), static_cast<int>(password.size()), nullptr,
+                return self->Connect(host, remote_port, password_data, password_length, nullptr,
                                      connection_socket_index, send_connection_attempt_count,
                                      time_between_send_connection_attempts_ms, timeout_time);
             },
@@ -495,10 +497,11 @@ NB_MODULE(_raknet, m)
             [](RakPeer &self, const nb::bytes &data, PacketPriority priority, PacketReliability reliability,
                int ordering_channel, const RakNet::AddressOrGUID &system_identifier, bool broadcast,
                uint32_t force_receipt_number) {
+                const char *buffer = data.c_str();
+                int length = static_cast<int>(data.size());
                 nb::gil_scoped_release release;
-                return self->Send(data.c_str(), static_cast<int>(data.size()), priority, reliability,
-                                  static_cast<char>(ordering_channel), system_identifier, broadcast,
-                                  force_receipt_number);
+                return self->Send(buffer, length, priority, reliability, static_cast<char>(ordering_channel),
+                                  system_identifier, broadcast, force_receipt_number);
             },
             nb::arg("data"), nb::arg("priority"), nb::arg("reliability"), nb::arg("ordering_channel"),
             nb::arg("system_identifier"), nb::arg("broadcast"), nb::arg("force_receipt_number") = 0)
