@@ -344,6 +344,8 @@ class Peer:
         pending = self._make_pending_connect()
         key = self._pending_key(host, port, pending)
         with self._lock:
+            if self._closed:
+                raise RakNetError("peer is closed")
             self._pending_connects[key] = pending
         result = self._raw.connect(
             host,
@@ -376,6 +378,8 @@ class Peer:
         pending = self._make_pending_ping()
         key = self._pending_key(host, port, pending)
         with self._lock:
+            if self._closed:
+                raise RakNetError("peer is closed")
             self._pending_pings[key] = pending
         if not self._raw.ping(host, port, False):
             with self._lock:
