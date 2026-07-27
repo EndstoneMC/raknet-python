@@ -172,6 +172,8 @@ class Peer(_peer.Peer):
         offline_ping_response: bytes = b"",
         max_queue: int | None = None,
     ) -> None:
+        # Constructs on the calling thread and binds the UDP socket inline; the factories
+        # below run this off the event loop. Prefer them, or use this in a thread yourself.
         self._loop = asyncio.get_running_loop()
         super().__init__(
             addresses,
@@ -181,6 +183,18 @@ class Peer(_peer.Peer):
             offline_ping_response=offline_ping_response,
             max_queue=max_queue,
         )
+
+    @classmethod
+    async def _create(cls, addresses, **kwargs) -> Peer:
+        loop = asyncio.get_running_loop()
+
+        def build() -> Peer:
+            self = cls.__new__(cls)
+            self._loop = loop
+            _peer.Peer.__init__(self, addresses, **kwargs)
+            return self
+
+        return await asyncio.to_thread(build)
 
     def _make_accept_queue(self):
         return _AsyncAcceptQueue(self._loop)
@@ -271,7 +285,7 @@ async def create_server(
     offline_ping_response: bytes = b"",
     max_queue: int | None = None,
 ) -> Peer:
-    return Peer(
+    return await Peer._create(
         [address],
         max_connections=max_connections,
         max_incoming_connections=max_connections,
@@ -289,7 +303,7 @@ async def create_connection(
     attempt_interval: float = 0.5,
     max_queue: int | None = None,
 ) -> Connection:
-    peer = Peer(max_connections=1, max_queue=max_queue)
+    peer = await Peer._create([("", 0)], max_connections=1, max_queue=max_queue)
     try:
         connection = await peer.connect(
             address, password=password, attempts=attempts, attempt_interval=attempt_interval
@@ -302,7 +316,7 @@ async def create_connection(
 
 
 async def ping(address: tuple[str, int]) -> Pong:
-    peer = Peer(max_connections=1)
+    peer = await Peer._create([("", 0)], max_connections=1)
     try:
         return await peer.ping(address)
     finally:
