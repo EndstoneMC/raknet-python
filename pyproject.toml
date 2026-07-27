@@ -43,7 +43,9 @@ lint.extend-select = ["I", "E", "F"]
 
 [tool.cibuildwheel]
 # One abi3 wheel per platform; the cp312-abi3 tag is pinned in cpp17.profile.
+# raknet/4.081-mojang matches the BDS ABI, which only ships on Windows and Linux x86-64.
 build = "cp312-*"
+archs = ["auto64"]
 build-verbosity = 1
 test-requires = "pytest"
 test-command = "pytest {project}/tests"
@@ -52,3 +54,4 @@ before-build = "pip install conan && conan remote add endstone https://conan.clo
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
+musllinux-x86_64-image = "musllinux_1_2"

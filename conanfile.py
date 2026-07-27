@@ -12,7 +12,7 @@ class RakNetPythonConan(ConanFile):
         cmake_layout(self)
 
     def requirements(self):
-        self.requires("raknet/4.081")
+        self.requires("raknet/4.081-mojang")
         self.requires("nanobind/2.13.0")
 
     def build(self):
