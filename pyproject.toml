@@ -8,10 +8,10 @@ version = "0.4.0"
 authors = [
     { name = "Vincent Wu", email = "magicdroidx@gmail.com" }
 ]
-description = "Python bindings for the RakNet networking library"
+description = "Python bindings for the RakNet networking library with synchronous and asyncio APIs"
 readme = "README.md"
 requires-python = ">=3.12"
-keywords = ["python", "raknet", "network"]
+keywords = ["raknet", "networking", "udp", "minecraft", "bedrock", "asyncio"]
 license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 3 - Alpha",
