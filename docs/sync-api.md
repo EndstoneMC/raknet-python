@@ -67,6 +67,7 @@ The constructor starts the peer (`startup`) and the receive pump; `StartupError`
 | Member | Behaviour |
 | --- | --- |
 | `accept(timeout=None) -> Connection` | Blocks for the next incoming connection (`ID_NEW_INCOMING_CONNECTION`). |
+| `serve_forever(handler)` | Accepts until the peer is closed, running `handler(connection)` in a daemon thread per connection; closes the connection when the handler returns and swallows `ConnectionClosed` raised by it. |
 | `connect(address, *, password=None, timeout=None, attempts=12, attempt_interval=0.5) -> Connection` | Blocks until accepted; raises `ConnectError` / `TimeoutError`. |
 | `connections -> list[Connection]` | Live connections, incoming and outgoing. |
 | `ping(address, *, timeout=None) -> Pong` | Unconnected ping; `Pong(address, guid, data, round_trip_time)`. |
@@ -132,11 +133,12 @@ Echo server:
 ```python
 import raknet
 
+def handler(conn):
+    for message in conn:
+        conn.send(message)
+
 with raknet.create_server(("0.0.0.0", 60000), max_connections=32) as server:
-    while True:
-        conn = server.accept()
-        for message in conn:      # one client at a time; use a thread per conn otherwise
-            conn.send(message)
+    server.serve_forever(handler)
 ```
 
 Client:
@@ -158,5 +160,4 @@ print(pong.data, pong.round_trip_time)
 
 - ACK receipts (`send(..., receipt=True)` returning a waitable).
 - `advertise_system` / out-of-band messaging sugar.
-- A `serve_forever(handler)` threaded server (socketserver analog) — trivial for users to build, may add later.
 - Security (`initialize_security`) — LIBCAT is compiled out.

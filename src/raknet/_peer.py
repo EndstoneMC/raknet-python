@@ -5,7 +5,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Iterator, Sequence
+from typing import Callable, Iterator, Sequence
 
 from raknet import raw
 from raknet._router import Router
@@ -250,6 +250,22 @@ class Peer:
             self._accept_queue.put(None)
             raise RakNetError("peer is closed")
         return connection
+
+    def serve_forever(self, handler: Callable[[Connection], object]) -> None:
+        while True:
+            try:
+                connection = self.accept()
+            except RakNetError:
+                return
+            threading.Thread(target=self._run_handler, args=(handler, connection), daemon=True).start()
+
+    def _run_handler(self, handler: Callable[[Connection], object], connection: Connection) -> None:
+        try:
+            handler(connection)
+        except ConnectionClosed:
+            pass
+        finally:
+            connection.close()
 
     def connect(
         self,

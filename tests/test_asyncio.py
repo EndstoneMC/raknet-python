@@ -29,6 +29,42 @@ def test_echo_roundtrip():
     asyncio.run(asyncio.wait_for(main(), 30))
 
 
+def test_serve_forever_echo():
+    async def main():
+        async with await raknet.asyncio.create_server((HOST, 0), max_connections=4) as server:
+
+            async def handler(conn):
+                async for message in conn:
+                    await conn.send(message)
+
+            serve_task = asyncio.create_task(server.serve_forever(handler))
+            for payload in (b"first", b"second"):
+                conn = await raknet.asyncio.create_connection(server.local_address)
+                async with conn:
+                    await conn.send(payload)
+                    assert await asyncio.wait_for(conn.recv(), 5) == payload
+        await asyncio.wait_for(serve_task, 5)
+
+    asyncio.run(asyncio.wait_for(main(), 30))
+
+
+def test_serve_forever_closes_connection_after_handler():
+    async def main():
+        async with await raknet.asyncio.create_server((HOST, 0)) as server:
+
+            async def handler(conn):
+                pass
+
+            serve_task = asyncio.create_task(server.serve_forever(handler))
+            conn = await raknet.asyncio.create_connection(server.local_address)
+            async with conn:
+                with pytest.raises(raknet.ConnectionClosedOK):
+                    await asyncio.wait_for(conn.recv(), 5)
+        await asyncio.wait_for(serve_task, 5)
+
+    asyncio.run(asyncio.wait_for(main(), 30))
+
+
 def test_offline_ping():
     async def main():
         async with await raknet.asyncio.create_server((HOST, 0), offline_ping_response=b"MOTD") as server:

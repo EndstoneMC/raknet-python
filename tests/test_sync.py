@@ -33,6 +33,34 @@ def test_echo_roundtrip():
         assert not thread.is_alive()
 
 
+def test_serve_forever_echo():
+    with raknet.create_server((HOST, 0), max_connections=4) as server:
+
+        def handler(conn):
+            for message in conn:
+                conn.send(message)
+
+        thread = threading.Thread(target=server.serve_forever, args=(handler,), daemon=True)
+        thread.start()
+        for payload in (b"first", b"second"):
+            with raknet.create_connection(server.local_address, timeout=5) as conn:
+                conn.send(payload)
+                assert conn.recv(timeout=5) == payload
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
+def test_serve_forever_closes_connection_after_handler():
+    with raknet.create_server((HOST, 0)) as server:
+        thread = threading.Thread(target=server.serve_forever, args=(lambda conn: None,), daemon=True)
+        thread.start()
+        with raknet.create_connection(server.local_address, timeout=5) as conn:
+            with pytest.raises(raknet.ConnectionClosedOK):
+                conn.recv(timeout=5)
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
 def test_offline_ping():
     with raknet.create_server((HOST, 0), offline_ping_response=b"MOTD") as server:
         pong = raknet.ping(server.local_address, timeout=5)

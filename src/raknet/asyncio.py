@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import AsyncIterator, Sequence
+from typing import AsyncIterator, Awaitable, Callable, Sequence
 
 from raknet import _peer, raw
 from raknet._peer import Pong
-from raknet.exceptions import ConnectionClosedOK, RakNetError
+from raknet.exceptions import ConnectionClosed, ConnectionClosedOK, RakNetError
 
 __all__ = ["Connection", "Peer", "Pong", "create_connection", "create_server", "ping"]
 
@@ -187,6 +187,25 @@ class Peer(_peer.Peer):
             self._accept_queue.put(None)
             raise RakNetError("peer is closed")
         return connection
+
+    async def serve_forever(self, handler: Callable[[Connection], Awaitable[object]]) -> None:
+        tasks: set[asyncio.Task] = set()
+        while True:
+            try:
+                connection = await self.accept()
+            except RakNetError:
+                return
+            task = asyncio.create_task(self._run_handler(handler, connection))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+    async def _run_handler(self, handler: Callable[[Connection], Awaitable[object]], connection: Connection) -> None:
+        try:
+            await handler(connection)
+        except ConnectionClosed:
+            pass
+        finally:
+            await connection.close()
 
     async def connect(
         self,
