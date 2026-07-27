@@ -44,15 +44,19 @@ class Pong:
 
 
 class _Mailbox:
-    def __init__(self) -> None:
+    def __init__(self, maxsize: int | None = None) -> None:
         self._items: deque[bytes] = deque()
         self._cond = threading.Condition()
         self._exc: ConnectionClosed | None = None
+        self._maxsize = maxsize
 
-    def put(self, item: bytes) -> None:
+    def put(self, item: bytes) -> bool:
         with self._cond:
+            if self._maxsize is not None and len(self._items) >= self._maxsize:
+                return False
             self._items.append(item)
             self._cond.notify()
+            return True
 
     def close(self, exc: ConnectionClosed) -> None:
         with self._cond:
@@ -104,7 +108,7 @@ class Connection:
         self._mailbox = self._make_mailbox()
 
     def _make_mailbox(self):
-        return _Mailbox()
+        return _Mailbox(self._peer._max_queue)
 
     @property
     def remote_address(self) -> tuple[str, int]:
@@ -191,10 +195,12 @@ class Peer:
         max_incoming_connections: int | None = None,
         password: bytes | None = None,
         offline_ping_response: bytes = b"",
+        max_queue: int | None = None,
     ) -> None:
         descriptors = [raw.SocketDescriptor(port, host) for host, port in addresses]
         self._raw = raw.RakPeer()
         self._closed = False
+        self._max_queue = max_queue
         result = self._raw.startup(max_connections, descriptors)
         if result != raw.StartupResult.RAKNET_STARTED:
             raise StartupError(result)
@@ -490,8 +496,18 @@ class Peer:
     def message(self, guid: raw.RakNetGUID, data: bytes) -> None:
         with self._lock:
             connection = self._connections.get(guid.g)
-        if connection is not None:
-            connection._mailbox.put(data)
+        if connection is None:
+            return
+        if not connection._mailbox.put(data):
+            self._overflow(connection)
+
+    def _overflow(self, connection: Connection) -> None:
+        with self._lock:
+            self._connections.pop(connection.guid, None)
+        connection._closed = True
+        if not self._closed:
+            self._raw.close_connection(connection._raw_guid, True)
+        connection._mailbox.close(ConnectionClosedError("receive queue overflow"))
 
     def disconnected(self, guid: raw.RakNetGUID, graceful: bool) -> None:
         with self._lock:
@@ -518,6 +534,7 @@ def create_server(
     max_connections: int = 32,
     password: bytes | None = None,
     offline_ping_response: bytes = b"",
+    max_queue: int | None = None,
 ) -> Peer:
     return Peer(
         [address],
@@ -525,6 +542,7 @@ def create_server(
         max_incoming_connections=max_connections,
         password=password,
         offline_ping_response=offline_ping_response,
+        max_queue=max_queue,
     )
 
 
@@ -535,8 +553,9 @@ def create_connection(
     timeout: float | None = None,
     attempts: int = 12,
     attempt_interval: float = 0.5,
+    max_queue: int | None = None,
 ) -> Connection:
-    peer = Peer(max_connections=1)
+    peer = Peer(max_connections=1, max_queue=max_queue)
     try:
         connection = peer.connect(
             address, password=password, timeout=timeout, attempts=attempts, attempt_interval=attempt_interval

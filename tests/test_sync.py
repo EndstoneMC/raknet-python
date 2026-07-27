@@ -148,6 +148,18 @@ def test_recv_timeout():
         del server
 
 
+def test_max_queue_overflow_closes_connection():
+    with raknet.create_server((HOST, 0), max_queue=2) as server:
+        with raknet.create_connection(server.local_address, timeout=5) as client:
+            server_conn = server.accept(timeout=5)
+            for i in range(20):
+                client.send(b"m%d" % i, reliability=raknet.PacketReliability.RELIABLE_ORDERED)
+            with pytest.raises(raknet.ConnectionClosedError):
+                for _ in range(20):
+                    server_conn.recv(timeout=5)
+            assert not server_conn.connected
+
+
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_pump_crash_tears_down_peer():
     with raknet.create_server((HOST, 0)) as server:

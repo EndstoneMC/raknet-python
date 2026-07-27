@@ -16,17 +16,25 @@ _CLOSED = object()
 
 
 class _AsyncMailbox:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop, maxsize: int | None = None) -> None:
         self._loop = loop
         self._queue: asyncio.Queue = asyncio.Queue()
         self._exc = None
         self._drained = False
+        self._maxsize = maxsize
+        self._size = 0
 
-    def put(self, item: bytes) -> None:
+    def put(self, item: bytes) -> bool:
+        # Called from the pump thread. _size is a soft cap read/written here and in get()
+        # under the GIL; a small race is acceptable for a backpressure limit.
+        if self._maxsize is not None and self._size >= self._maxsize:
+            return False
+        self._size += 1
         try:
             self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
         except RuntimeError:
             pass
+        return True
 
     def close(self, exc) -> None:
         def _close():
@@ -47,6 +55,7 @@ class _AsyncMailbox:
             self._drained = True
             self._queue.put_nowait(_CLOSED)
             raise self._exc
+        self._size -= 1
         return item
 
 
@@ -104,7 +113,7 @@ class Connection(_peer.Connection):
     _peer: Peer
 
     def _make_mailbox(self):
-        return _AsyncMailbox(self._peer._loop)
+        return _AsyncMailbox(self._peer._loop, self._peer._max_queue)
 
     async def recv(self) -> bytes:
         return await self._mailbox.get()
@@ -161,6 +170,7 @@ class Peer(_peer.Peer):
         max_incoming_connections: int | None = None,
         password: bytes | None = None,
         offline_ping_response: bytes = b"",
+        max_queue: int | None = None,
     ) -> None:
         self._loop = asyncio.get_running_loop()
         super().__init__(
@@ -169,6 +179,7 @@ class Peer(_peer.Peer):
             max_incoming_connections=max_incoming_connections,
             password=password,
             offline_ping_response=offline_ping_response,
+            max_queue=max_queue,
         )
 
     def _make_accept_queue(self):
@@ -257,6 +268,7 @@ async def create_server(
     max_connections: int = 32,
     password: bytes | None = None,
     offline_ping_response: bytes = b"",
+    max_queue: int | None = None,
 ) -> Peer:
     return Peer(
         [address],
@@ -264,6 +276,7 @@ async def create_server(
         max_incoming_connections=max_connections,
         password=password,
         offline_ping_response=offline_ping_response,
+        max_queue=max_queue,
     )
 
 
@@ -273,8 +286,9 @@ async def create_connection(
     password: bytes | None = None,
     attempts: int = 12,
     attempt_interval: float = 0.5,
+    max_queue: int | None = None,
 ) -> Connection:
-    peer = Peer(max_connections=1)
+    peer = Peer(max_connections=1, max_queue=max_queue)
     try:
         connection = await peer.connect(
             address, password=password, attempts=attempts, attempt_interval=attempt_interval
