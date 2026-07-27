@@ -39,6 +39,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["*.md"]
 lint.select = ["E", "F", "I"]
 
 [tool.cibuildwheel]
