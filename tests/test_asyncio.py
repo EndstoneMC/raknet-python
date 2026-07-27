@@ -7,6 +7,8 @@ import raknet.asyncio
 
 HOST = "127.0.0.1"
 
+USER_ID = bytes([raknet.raw.DefaultMessageIDTypes.ID_USER_PACKET_ENUM])
+
 
 def test_echo_roundtrip():
     async def main():
@@ -22,8 +24,8 @@ def test_echo_roundtrip():
             async with conn:
                 assert conn.connected
                 assert conn.remote_address == server.local_address
-                await conn.send(b"hello asyncio")
-                assert await asyncio.wait_for(conn.recv(), 5) == b"hello asyncio"
+                await conn.send(USER_ID + b"hello asyncio")
+                assert await asyncio.wait_for(conn.recv(), 5) == USER_ID + b"hello asyncio"
             await asyncio.wait_for(task, 5)
 
     asyncio.run(asyncio.wait_for(main(), 30))
@@ -38,7 +40,7 @@ def test_serve_forever_echo():
                     await conn.send(message)
 
             serve_task = asyncio.create_task(server.serve_forever(handler))
-            for payload in (b"first", b"second"):
+            for payload in (USER_ID + b"first", USER_ID + b"second"):
                 conn = await raknet.asyncio.create_connection(server.local_address)
                 async with conn:
                     await conn.send(payload)
@@ -126,9 +128,9 @@ def test_concurrent_clients():
             task = asyncio.create_task(serve())
             clients = await asyncio.gather(*(raknet.asyncio.create_connection(server.local_address) for _ in range(3)))
             for i, client in enumerate(clients):
-                await client.send(b"c%d" % i)
+                await client.send(USER_ID + b"c%d" % i)
             for i, client in enumerate(clients):
-                assert await asyncio.wait_for(client.recv(), 5) == b"c%d-ack" % i
+                assert await asyncio.wait_for(client.recv(), 5) == USER_ID + b"c%d-ack" % i
             await asyncio.wait_for(task, 5)
             for client in clients:
                 await client.close()

@@ -7,6 +7,10 @@ import raknet
 
 HOST = "127.0.0.1"
 
+# RakNet delivers only packets whose first byte is a user message id (>= ID_USER_PACKET_ENUM);
+# lower first bytes are consumed as internal traffic, so payloads must carry a user id.
+USER_ID = bytes([raknet.raw.DefaultMessageIDTypes.ID_USER_PACKET_ENUM])
+
 
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -27,8 +31,8 @@ def test_echo_roundtrip():
         with raknet.create_connection(server.local_address, timeout=5) as conn:
             assert conn.connected
             assert conn.remote_address == server.local_address
-            conn.send(b"hello raknet")
-            assert conn.recv(timeout=5) == b"hello raknet"
+            conn.send(USER_ID + b"hello raknet")
+            assert conn.recv(timeout=5) == USER_ID + b"hello raknet"
         thread.join(timeout=5)
         assert not thread.is_alive()
 
@@ -42,7 +46,7 @@ def test_serve_forever_echo():
 
         thread = threading.Thread(target=server.serve_forever, args=(handler,), daemon=True)
         thread.start()
-        for payload in (b"first", b"second"):
+        for payload in (USER_ID + b"first", USER_ID + b"second"):
             with raknet.create_connection(server.local_address, timeout=5) as conn:
                 conn.send(payload)
                 assert conn.recv(timeout=5) == payload
@@ -104,7 +108,7 @@ def test_concurrent_connects_to_distinct_servers():
 
             def go(target, tag):
                 conn = client.connect(target.local_address, timeout=5)
-                conn.send(tag)
+                conn.send(USER_ID + tag)
                 results[tag] = conn.recv(timeout=5)
 
             threads = [
@@ -115,7 +119,7 @@ def test_concurrent_connects_to_distinct_servers():
                 t.start()
             for t in threads:
                 t.join(timeout=10)
-            assert results == {b"aaa": b"aaa", b"bbb": b"bbb"}
+            assert results == {b"aaa": USER_ID + b"aaa", b"bbb": USER_ID + b"bbb"}
 
 
 def test_close_notification():
@@ -133,9 +137,9 @@ def test_poll_and_peer_state():
         with raknet.create_connection(server.local_address, timeout=5) as client:
             server_conn = server.accept(timeout=5)
             assert not server_conn.poll()
-            client.send(b"x")
+            client.send(USER_ID + b"x")
             assert server_conn.poll(timeout=5)
-            assert server_conn.recv(timeout=5) == b"x"
+            assert server_conn.recv(timeout=5) == USER_ID + b"x"
             assert server.connections == [server_conn]
             assert server.local_address[0] == HOST
 
@@ -153,7 +157,7 @@ def test_max_queue_overflow_closes_connection():
         with raknet.create_connection(server.local_address, timeout=5) as client:
             server_conn = server.accept(timeout=5)
             for i in range(20):
-                client.send(b"m%d" % i, reliability=raknet.PacketReliability.RELIABLE_ORDERED)
+                client.send(USER_ID + b"m%d" % i, reliability=raknet.PacketReliability.RELIABLE_ORDERED)
             with pytest.raises(raknet.ConnectionClosedError):
                 for _ in range(20):
                     server_conn.recv(timeout=5)
@@ -170,7 +174,7 @@ def test_pump_crash_tears_down_peer():
             raise RuntimeError("boom")
 
         server._router.route = boom
-        client.send(b"trigger")
+        client.send(USER_ID + b"trigger")
         with pytest.raises(raknet.ConnectionClosedError):
             server_conn.recv(timeout=5)
         assert not server_conn.connected

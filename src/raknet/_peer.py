@@ -20,8 +20,6 @@ from raknet.exceptions import (
     StartupError,
 )
 
-_USER_MESSAGE_ID = int(raw.DefaultMessageIDTypes.ID_USER_PACKET_ENUM)
-
 
 def _to_address(address: raw.SystemAddress) -> tuple[str, int]:
     return address.to_string(False), address.get_port()
@@ -148,8 +146,7 @@ class Connection:
     ) -> None:
         if self._closed:
             raise ConnectionClosed("connection is closed")
-        payload = bytes([_USER_MESSAGE_ID]) + bytes(data)
-        self._peer._raw.send(payload, priority, reliability, channel, self._raw_guid, False)
+        self._peer._raw.send(bytes(data), priority, reliability, channel, self._raw_guid, False)
 
     def recv(self, timeout: float | None = None) -> bytes:
         return self._mailbox.get(timeout)

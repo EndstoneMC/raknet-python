@@ -46,8 +46,7 @@ class Router:
             return
         mid = data[0]
         if mid >= int(_MSG.ID_USER_PACKET_ENUM):
-            payload = data[1:] if mid == int(_MSG.ID_USER_PACKET_ENUM) else data
-            self._sink.message(packet.guid, payload)
+            self._sink.message(packet.guid, data)
         elif mid == int(_MSG.ID_NEW_INCOMING_CONNECTION):
             self._sink.incoming_connection(packet.system_address, packet.guid)
         elif mid == int(_MSG.ID_CONNECTION_REQUEST_ACCEPTED):

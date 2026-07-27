@@ -111,7 +111,7 @@ class Connection:
 
 Semantics:
 
-- Message framing: `send` prepends `ID_USER_PACKET_ENUM`, `recv` strips it. Raw payloads whose first byte falls below `ID_USER_PACKET_ENUM` would otherwise be eaten by RakNet as internal traffic, so the pythonic layer owns one message id and delivers clean `bytes` both ways. Anything fancier (custom message ids, timestamps) is raw-layer territory.
+- Message framing: none. `send` transmits the payload verbatim and `recv` returns it verbatim. RakNet reserves first bytes below `ID_USER_PACKET_ENUM` for its own control traffic and only delivers packets whose first byte is a user message id, so a payload must lead with an id `>= ID_USER_PACKET_ENUM` (Minecraft Bedrock uses `0xFE`). The router treats every such packet as a message and everything below the threshold as a lifecycle event.
 - `recv` on a closed connection raises `ConnectionClosedOK` / `ConnectionClosedError`; messages already queued are still delivered first. Iteration ends cleanly on `ConnectionClosedOK` and propagates `ConnectionClosedError`.
 - `send` after close raises `ConnectionClosed`. `send` never blocks (RakNet buffers); ACK receipts are out of scope for v1.
 - `close(notify=True)` sends the disconnection notification; `notify=False` drops silently.
