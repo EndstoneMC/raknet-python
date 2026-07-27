@@ -230,7 +230,8 @@ class Peer(_peer.Peer):
         try:
             await pending.event.wait()
         except asyncio.CancelledError:
-            self._abandon_connect(key, ip, address[1])
+            if not self._abandon_connect(key, ip, address[1]) and pending.connection is not None:
+                await pending.connection.close()
             raise
         return self._finish_connect(address, pending)
 

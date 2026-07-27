@@ -294,7 +294,12 @@ class Peer:
     ) -> Connection:
         pending, key, ip = self._start_connect(address, password, attempts, attempt_interval)
         if not pending.event.wait(timeout):
-            self._abandon_connect(key, ip, address[1])
+            if not self._abandon_connect(key, ip, address[1]):
+                # The pump resolved the attempt between our timeout and the pop; it is
+                # committed to set the event. Close the connection if one was established.
+                pending.event.wait()
+                if pending.connection is not None:
+                    pending.connection.close()
             host, port = address
             raise TimeoutError(f"connect to {host}:{port} timed out")
         return self._finish_connect(address, pending)
@@ -391,10 +396,15 @@ class Peer:
             raise ConnectError(address, result)
         return pending, key, ip
 
-    def _abandon_connect(self, key, ip, port) -> None:
+    def _abandon_connect(self, key, ip, port) -> bool:
+        # Returns True if the attempt was still pending (we cancelled it), False if the
+        # pump already resolved it (caller must reap any orphaned connection).
         with self._lock:
-            self._pending_connects.pop(key, None)
+            removed = self._pending_connects.pop(key, None)
+        if removed is None:
+            return False
         self._raw.cancel_connection_attempt(raw.SystemAddress(ip, port))
+        return True
 
     def _finish_connect(self, address, pending) -> Connection:
         if pending.reason is not None:
