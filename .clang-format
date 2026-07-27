@@ -1,0 +1,31 @@
+BasedOnStyle: Microsoft
+AccessModifierOffset: -4
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignOperands: AlignAfterOperator
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: Inline
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Stroustrup
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<[a-zA-Z0-9_]+\.h>' # C system headers
+    Priority: 1
+    SortPriority: 0
+    CaseSensitive: false
+  - Regex: '^<[^/]*>' # C++ standard library headers
+    Priority: 2
+    SortPriority: 0
+    CaseSensitive: false
+  - Regex: '^<.*>' # Other libraries' .h files
+    Priority: 3
+    SortPriority: 0
+    CaseSensitive: false
+  - Regex: '.*'
+    Priority: 4
+    SortPriority: 0
+    CaseSensitive: false
+InsertBraces: true
+InsertNewlineAtEOF: true
+MaxEmptyLinesToKeep: 1
+SpacesBeforeTrailingComments: 2
