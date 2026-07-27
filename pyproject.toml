@@ -1,0 +1,32 @@
+[build-system]
+requires = ["conan-py-build>=0.6.1"]
+build-backend = "conan_py_build.build"
+
+[project]
+name = "raknet"
+version = "0.4.0.dev0"
+authors = [
+    { name = "Vincent Wu", email = "magicdroidx@gmail.com" }
+]
+description = "Python bindings for the RakNet networking library"
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["python", "raknet", "network"]
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking",
+]
+
+[project.urls]
+Homepage = "https://github.com/raknet-python/raknet-python"
+Issues = "https://github.com/raknet-python/raknet-python/issues"
+
+[tool.conan-py-build]
+extra-profile = "cpp17.profile"
