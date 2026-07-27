@@ -215,11 +215,11 @@ class Peer(_peer.Peer):
         attempts: int = 12,
         attempt_interval: float = 0.5,
     ) -> Connection:
-        pending, key = await asyncio.to_thread(self._start_connect, address, password, attempts, attempt_interval)
+        pending, key, ip = await asyncio.to_thread(self._start_connect, address, password, attempts, attempt_interval)
         try:
             await pending.event.wait()
         except asyncio.CancelledError:
-            self._abandon_connect(address, key)
+            self._abandon_connect(key, ip, address[1])
             raise
         return self._finish_connect(address, pending)
 

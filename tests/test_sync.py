@@ -88,6 +88,36 @@ def test_connect_rejects_too_few_attempts():
             server.connect((HOST, free_port()), attempts=2)
 
 
+def test_connect_unresolvable_host():
+    with raknet.create_server((HOST, 0)) as server:
+        with pytest.raises(raknet.ConnectError) as excinfo:
+            server.connect(("no.such.host.invalid", 19132), timeout=5)
+        assert excinfo.value.reason == raknet.raw.ConnectionAttemptResult.CANNOT_RESOLVE_DOMAIN_NAME
+
+
+def test_concurrent_connects_to_distinct_servers():
+    with raknet.create_server((HOST, 0)) as a, raknet.create_server((HOST, 0)) as b:
+        for server in (a, b):
+            threading.Thread(target=server.serve_forever, args=(lambda c: [c.send(m) for m in c],), daemon=True).start()
+        with raknet.create_server((HOST, 0), max_connections=4) as client:
+            results = {}
+
+            def go(target, tag):
+                conn = client.connect(target.local_address, timeout=5)
+                conn.send(tag)
+                results[tag] = conn.recv(timeout=5)
+
+            threads = [
+                threading.Thread(target=go, args=(a, b"aaa")),
+                threading.Thread(target=go, args=(b, b"bbb")),
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+            assert results == {b"aaa": b"aaa", b"bbb": b"bbb"}
+
+
 def test_close_notification():
     with raknet.create_server((HOST, 0)) as server:
         client = raknet.create_connection(server.local_address, timeout=5)

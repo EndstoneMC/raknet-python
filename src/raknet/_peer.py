@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import socket
 import threading
 import time
 import traceback
@@ -24,6 +25,14 @@ _USER_MESSAGE_ID = int(raw.DefaultMessageIDTypes.ID_USER_PACKET_ENUM)
 
 def _to_address(address: raw.SystemAddress) -> tuple[str, int]:
     return address.to_string(False), address.get_port()
+
+
+def _resolve(host: str, port: int) -> str:
+    # RakNet's SystemAddress does not resolve names; resolve here so the pending key
+    # matches the numeric address RakNet reports back and RakNet skips its own blocking DNS.
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
+    infos.sort(key=lambda info: 0 if info[0] == socket.AF_INET else 1)
+    return infos[0][4][0]
 
 
 @dataclass(frozen=True)
@@ -277,9 +286,9 @@ class Peer:
         attempts: int = 12,
         attempt_interval: float = 0.5,
     ) -> Connection:
-        pending, key = self._start_connect(address, password, attempts, attempt_interval)
+        pending, key, ip = self._start_connect(address, password, attempts, attempt_interval)
         if not pending.event.wait(timeout):
-            self._abandon_connect(address, key)
+            self._abandon_connect(key, ip, address[1])
             host, port = address
             raise TimeoutError(f"connect to {host}:{port} timed out")
         return self._finish_connect(address, pending)
@@ -353,14 +362,18 @@ class Peer:
         if attempts < 3:
             raise ValueError("attempts must be at least 3, RakNet probes one MTU size per third of the attempts")
         host, port = address
+        try:
+            ip = _resolve(host, port)
+        except OSError:
+            raise ConnectError(address, raw.ConnectionAttemptResult.CANNOT_RESOLVE_DOMAIN_NAME) from None
         pending = self._make_pending_connect()
-        key = self._pending_key(host, port, pending)
+        key = self._pending_key(ip, port)
         with self._lock:
             if self._closed:
                 raise RakNetError("peer is closed")
             self._pending_connects[key] = pending
         result = self._raw.connect(
-            host,
+            ip,
             port,
             password or b"",
             send_connection_attempt_count=attempts,
@@ -370,13 +383,12 @@ class Peer:
             with self._lock:
                 self._pending_connects.pop(key, None)
             raise ConnectError(address, result)
-        return pending, key
+        return pending, key, ip
 
-    def _abandon_connect(self, address, key) -> None:
-        host, port = address
+    def _abandon_connect(self, key, ip, port) -> None:
         with self._lock:
             self._pending_connects.pop(key, None)
-        self._raw.cancel_connection_attempt(raw.SystemAddress(host, port))
+        self._raw.cancel_connection_attempt(raw.SystemAddress(ip, port))
 
     def _finish_connect(self, address, pending) -> Connection:
         if pending.reason is not None:
@@ -387,13 +399,17 @@ class Peer:
     def _start_ping(self, address):
         self._check_open()
         host, port = address
+        try:
+            ip = _resolve(host, port)
+        except OSError:
+            raise RakNetError(f"cannot resolve {host}") from None
         pending = self._make_pending_ping()
-        key = self._pending_key(host, port, pending)
+        key = self._pending_key(ip, port)
         with self._lock:
             if self._closed:
                 raise RakNetError("peer is closed")
             self._pending_pings[key] = pending
-        if not self._raw.ping(host, port, False):
+        if not self._raw.ping(ip, port, False):
             with self._lock:
                 self._pending_pings.pop(key, None)
             raise RakNetError(f"ping to {host}:{port} failed")
@@ -430,20 +446,13 @@ class Peer:
             pending.event.set()
         self._accept_queue.put(None)
 
-    def _pending_key(self, host: str, port: int, pending: object) -> str:
-        address = raw.SystemAddress(host, port)
-        if address == raw.UNASSIGNED_SYSTEM_ADDRESS:
-            return f"unresolved-{id(pending)}"
-        return address.to_string(True)
+    def _pending_key(self, ip: str, port: int) -> str:
+        return raw.SystemAddress(ip, port).to_string(True)
 
     def _pop_pending(self, table: dict, address: raw.SystemAddress):
         key = address.to_string(True)
         with self._lock:
-            if key in table:
-                return table.pop(key)
-            if len(table) == 1:
-                return table.popitem()[1]
-        return None
+            return table.pop(key, None)
 
     def _close_connection(self, connection: Connection, notify: bool) -> None:
         with self._lock:
