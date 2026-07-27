@@ -89,9 +89,12 @@ class Connection:
         self._peer = peer
         self._raw_address = address
         self._raw_guid = guid
-        self._mailbox = _Mailbox()
         self._closed = False
         self._owns_peer = False
+        self._mailbox = self._make_mailbox()
+
+    def _make_mailbox(self):
+        return _Mailbox()
 
     @property
     def remote_address(self) -> tuple[str, int]:
@@ -162,11 +165,13 @@ class Connection:
     def __repr__(self) -> str:
         host, port = self.remote_address
         state = "open" if self.connected else "closed"
-        return f"<Connection {host}:{port} guid={self.guid} {state}>"
+        return f"<{type(self).__name__} {host}:{port} guid={self.guid} {state}>"
 
 
 class Peer:
     """A RakNet peer with a background receive pump. Can accept and initiate connections."""
+
+    _connection_cls = Connection
 
     def __init__(
         self,
@@ -192,10 +197,19 @@ class Peer:
         self._connections: dict[int, Connection] = {}
         self._pending_connects: dict[str, _PendingConnect] = {}
         self._pending_pings: dict[str, _PendingPing] = {}
-        self._accept_queue: queue.SimpleQueue[Connection | None] = queue.SimpleQueue()
+        self._accept_queue = self._make_accept_queue()
         self._router = Router(self)
         self._pump = threading.Thread(target=self._pump_loop, name="raknet-pump", daemon=True)
         self._pump.start()
+
+    def _make_accept_queue(self):
+        return queue.SimpleQueue()
+
+    def _make_pending_connect(self):
+        return _PendingConnect()
+
+    def _make_pending_ping(self):
+        return _PendingPing()
 
     @property
     def guid(self) -> int:
@@ -246,52 +260,21 @@ class Peer:
         attempts: int = 12,
         attempt_interval: float = 0.5,
     ) -> Connection:
-        self._check_open()
-        if attempts < 3:
-            raise ValueError("attempts must be at least 3, RakNet probes one MTU size per third of the attempts")
-        host, port = address
-        pending = _PendingConnect()
-        key = self._pending_key(host, port, pending)
-        with self._lock:
-            self._pending_connects[key] = pending
-        result = self._raw.connect(
-            host,
-            port,
-            password or b"",
-            send_connection_attempt_count=attempts,
-            time_between_send_connection_attempts_ms=int(attempt_interval * 1000),
-        )
-        if result != raw.ConnectionAttemptResult.CONNECTION_ATTEMPT_STARTED:
-            with self._lock:
-                self._pending_connects.pop(key, None)
-            raise ConnectError(address, result)
+        pending, key = self._start_connect(address, password, attempts, attempt_interval)
         if not pending.event.wait(timeout):
-            with self._lock:
-                self._pending_connects.pop(key, None)
-            self._raw.cancel_connection_attempt(raw.SystemAddress(host, port))
+            self._abandon_connect(address, key)
+            host, port = address
             raise TimeoutError(f"connect to {host}:{port} timed out")
-        if pending.reason is not None:
-            raise ConnectError(address, pending.reason)
-        assert pending.connection is not None
-        return pending.connection
+        return self._finish_connect(address, pending)
 
     def ping(self, address: tuple[str, int], *, timeout: float | None = 1.0) -> Pong:
-        self._check_open()
-        host, port = address
-        pending = _PendingPing()
-        key = self._pending_key(host, port, pending)
-        with self._lock:
-            self._pending_pings[key] = pending
-        if not self._raw.ping(host, port, False):
-            with self._lock:
-                self._pending_pings.pop(key, None)
-            raise RakNetError(f"ping to {host}:{port} failed")
+        pending, key = self._start_ping(address)
         if not pending.event.wait(timeout):
             with self._lock:
                 self._pending_pings.pop(key, None)
+            host, port = address
             raise TimeoutError(f"ping to {host}:{port} timed out")
-        assert pending.pong is not None
-        return pending.pong
+        return self._finish_ping(pending)
 
     def ban(self, ip: str, duration: float | None = None) -> None:
         self._raw.add_to_ban_list(ip, 0 if duration is None else int(duration * 1000))
@@ -303,27 +286,12 @@ class Peer:
         self._raw.clear_ban_list()
 
     def close(self, timeout: float = 0.5) -> None:
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            connections = list(self._connections.values())
-            self._connections.clear()
-            pending_connects = list(self._pending_connects.values())
-            self._pending_connects.clear()
-            pending_pings = list(self._pending_pings.values())
-            self._pending_pings.clear()
+        state = self._begin_close()
+        if state is None:
+            return
         self._pump.join()
         self._raw.shutdown(int(timeout * 1000))
-        for connection in connections:
-            connection._closed = True
-            connection._mailbox.close(ConnectionClosedOK("peer closed"))
-        for pending in pending_connects:
-            pending.reason = raw.DefaultMessageIDTypes.ID_CONNECTION_ATTEMPT_FAILED
-            pending.event.set()
-        for ping_pending in pending_pings:
-            ping_pending.event.set()
-        self._accept_queue.put(None)
+        self._finish_close(*state)
 
     def __enter__(self) -> Peer:
         return self
@@ -334,7 +302,7 @@ class Peer:
     def __repr__(self) -> str:
         host, port = self.local_address if not self._closed else ("", 0)
         state = "closed" if self._closed else f"{host}:{port}"
-        return f"<Peer {state} connections={len(self._connections)}>"
+        return f"<{type(self).__name__} {state} connections={len(self._connections)}>"
 
     @property
     def raw(self) -> raw.RakPeer:
@@ -351,6 +319,82 @@ class Peer:
                 time.sleep(0.001)
                 continue
             self._router.route(packet)
+
+    def _start_connect(self, address, password, attempts, attempt_interval):
+        self._check_open()
+        if attempts < 3:
+            raise ValueError("attempts must be at least 3, RakNet probes one MTU size per third of the attempts")
+        host, port = address
+        pending = self._make_pending_connect()
+        key = self._pending_key(host, port, pending)
+        with self._lock:
+            self._pending_connects[key] = pending
+        result = self._raw.connect(
+            host,
+            port,
+            password or b"",
+            send_connection_attempt_count=attempts,
+            time_between_send_connection_attempts_ms=int(attempt_interval * 1000),
+        )
+        if result != raw.ConnectionAttemptResult.CONNECTION_ATTEMPT_STARTED:
+            with self._lock:
+                self._pending_connects.pop(key, None)
+            raise ConnectError(address, result)
+        return pending, key
+
+    def _abandon_connect(self, address, key) -> None:
+        host, port = address
+        with self._lock:
+            self._pending_connects.pop(key, None)
+        self._raw.cancel_connection_attempt(raw.SystemAddress(host, port))
+
+    def _finish_connect(self, address, pending) -> Connection:
+        if pending.reason is not None:
+            raise ConnectError(address, pending.reason)
+        assert pending.connection is not None
+        return pending.connection
+
+    def _start_ping(self, address):
+        self._check_open()
+        host, port = address
+        pending = self._make_pending_ping()
+        key = self._pending_key(host, port, pending)
+        with self._lock:
+            self._pending_pings[key] = pending
+        if not self._raw.ping(host, port, False):
+            with self._lock:
+                self._pending_pings.pop(key, None)
+            raise RakNetError(f"ping to {host}:{port} failed")
+        return pending, key
+
+    def _finish_ping(self, pending) -> Pong:
+        if pending.pong is None:
+            raise RakNetError("peer is closed")
+        return pending.pong
+
+    def _begin_close(self):
+        with self._lock:
+            if self._closed:
+                return None
+            self._closed = True
+            connections = list(self._connections.values())
+            self._connections.clear()
+            pending_connects = list(self._pending_connects.values())
+            self._pending_connects.clear()
+            pending_pings = list(self._pending_pings.values())
+            self._pending_pings.clear()
+        return connections, pending_connects, pending_pings
+
+    def _finish_close(self, connections, pending_connects, pending_pings) -> None:
+        for connection in connections:
+            connection._closed = True
+            connection._mailbox.close(ConnectionClosedOK("peer closed"))
+        for pending in pending_connects:
+            pending.reason = raw.DefaultMessageIDTypes.ID_CONNECTION_ATTEMPT_FAILED
+            pending.event.set()
+        for pending in pending_pings:
+            pending.event.set()
+        self._accept_queue.put(None)
 
     def _pending_key(self, host: str, port: int, pending: object) -> str:
         address = raw.SystemAddress(host, port)
@@ -378,7 +422,7 @@ class Peer:
     # Sink callbacks, invoked from the pump thread.
 
     def incoming_connection(self, address: raw.SystemAddress, guid: raw.RakNetGUID) -> None:
-        connection = Connection(self, address, guid)
+        connection = self._connection_cls(self, address, guid)
         with self._lock:
             self._connections[guid.g] = connection
         self._accept_queue.put(connection)
@@ -387,7 +431,7 @@ class Peer:
         pending = self._pop_pending(self._pending_connects, address)
         if pending is None:
             return
-        connection = Connection(self, address, guid)
+        connection = self._connection_cls(self, address, guid)
         with self._lock:
             self._connections[guid.g] = connection
         pending.connection = connection
