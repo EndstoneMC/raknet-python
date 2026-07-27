@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 
 import pytest
 
@@ -158,10 +159,15 @@ def test_max_queue_overflow_closes_connection():
             server_conn = server.accept(timeout=5)
             for i in range(20):
                 client.send(USER_ID + b"m%d" % i, reliability=raknet.PacketReliability.RELIABLE_ORDERED)
-            with pytest.raises(raknet.ConnectionClosedError):
-                for _ in range(20):
-                    server_conn.recv(timeout=5)
+            # Wait for the pump to overflow the 2-slot queue without draining it, so the
+            # overflow is deterministic rather than racing recv against delivery.
+            deadline = time.monotonic() + 5
+            while server_conn.connected and time.monotonic() < deadline:
+                time.sleep(0.02)
             assert not server_conn.connected
+            with pytest.raises(raknet.ConnectionClosedError):
+                while True:
+                    server_conn.recv(timeout=5)
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
