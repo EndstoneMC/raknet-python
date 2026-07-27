@@ -25,8 +25,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/raknet-python/raknet-python"
-Issues = "https://github.com/raknet-python/raknet-python/issues"
+Homepage = "https://github.com/EndstoneMC/raknet-python"
+Issues = "https://github.com/EndstoneMC/raknet-python/issues"
 
 [tool.conan-py-build]
 extra-profile = "cpp17.profile"
@@ -39,12 +39,14 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-lint.extend-select = ["I", "E", "F"]
+lint.select = ["E", "F", "I"]
 
 [tool.cibuildwheel]
 # One abi3 wheel per platform; the cp312-abi3 tag is pinned in cpp17.profile.
 # raknet/4.081-mojang matches the BDS ABI, which only ships on Windows and Linux x86-64.
+# musllinux is skipped: RakNet overflows musl's small (128 KB) non-main-thread stacks and segfaults.
 build = "cp312-*"
+skip = ["*-musllinux*"]
 archs = ["auto64"]
 build-verbosity = 1
 test-requires = "pytest"
@@ -54,4 +56,3 @@ before-build = "pip install conan && conan remote add endstone https://conan.clo
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
-musllinux-x86_64-image = "musllinux_1_2"
