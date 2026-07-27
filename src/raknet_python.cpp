@@ -616,6 +616,7 @@ NB_MODULE(_raknet, m)
             "ping",
             [](RakPeer &self, const char *host, unsigned short remote_port, bool only_reply_on_accepting_connections,
                unsigned connection_socket_index) {
+                nb::gil_scoped_release release;
                 return self->Ping(host, remote_port, only_reply_on_accepting_connections, connection_socket_index);
             },
             nb::arg("host"), nb::arg("remote_port"), nb::arg("only_reply_on_accepting_connections"),
@@ -728,8 +729,10 @@ NB_MODULE(_raknet, m)
             "advertise_system",
             [](RakPeer &self, const char *host, unsigned short remote_port, const nb::bytes &data,
                unsigned connection_socket_index) {
-                return self->AdvertiseSystem(host, remote_port, data.c_str(), static_cast<int>(data.size()),
-                                             connection_socket_index);
+                const char *buffer = data.c_str();
+                int length = static_cast<int>(data.size());
+                nb::gil_scoped_release release;
+                return self->AdvertiseSystem(host, remote_port, buffer, length, connection_socket_index);
             },
             nb::arg("host"), nb::arg("remote_port"), nb::arg("data") = nb::bytes("", 0),
             nb::arg("connection_socket_index") = 0)
@@ -745,6 +748,7 @@ NB_MODULE(_raknet, m)
         .def(
             "send_ttl",
             [](RakPeer &self, const char *host, unsigned short remote_port, int ttl, unsigned connection_socket_index) {
+                nb::gil_scoped_release release;
                 self->SendTTL(host, remote_port, ttl, connection_socket_index);
             },
             nb::arg("host"), nb::arg("remote_port"), nb::arg("ttl"), nb::arg("connection_socket_index") = 0)
@@ -804,8 +808,10 @@ NB_MODULE(_raknet, m)
             "send_out_of_band",
             [](RakPeer &self, const char *host, unsigned short remote_port, const nb::bytes &data,
                unsigned connection_socket_index) {
-                return self->SendOutOfBand(host, remote_port, data.c_str(), static_cast<RakNet::BitSize_t>(data.size()),
-                                           connection_socket_index);
+                const char *buffer = data.c_str();
+                auto length = static_cast<RakNet::BitSize_t>(data.size());
+                nb::gil_scoped_release release;
+                return self->SendOutOfBand(host, remote_port, buffer, length, connection_socket_index);
             },
             nb::arg("host"), nb::arg("remote_port"), nb::arg("data") = nb::bytes("", 0),
             nb::arg("connection_socket_index") = 0);
