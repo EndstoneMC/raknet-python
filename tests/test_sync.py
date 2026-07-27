@@ -116,3 +116,20 @@ def test_recv_timeout():
             with pytest.raises(TimeoutError):
                 client.recv(timeout=0.1)
         del server
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_pump_crash_tears_down_peer():
+    with raknet.create_server((HOST, 0)) as server:
+        client = raknet.create_connection(server.local_address, timeout=5)
+        server_conn = server.accept(timeout=5)
+
+        def boom(packet):
+            raise RuntimeError("boom")
+
+        server._router.route = boom
+        client.send(b"trigger")
+        with pytest.raises(raknet.ConnectionClosedError):
+            server_conn.recv(timeout=5)
+        assert not server_conn.connected
+        client.close()

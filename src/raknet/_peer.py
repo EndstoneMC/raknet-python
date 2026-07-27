@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+import traceback
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Iterator, Sequence
@@ -329,12 +330,23 @@ class Peer:
             raise RakNetError("peer is closed")
 
     def _pump_loop(self) -> None:
-        while not self._closed:
-            packet = self._raw.receive()
-            if packet is None:
-                time.sleep(0.001)
-                continue
-            self._router.route(packet)
+        try:
+            while not self._closed:
+                packet = self._raw.receive()
+                if packet is None:
+                    time.sleep(0.001)
+                    continue
+                self._router.route(packet)
+        except BaseException:
+            self._fail(traceback.format_exc())
+            raise
+
+    def _fail(self, detail: str) -> None:
+        state = self._begin_close()
+        if state is None:
+            return
+        self._raw.shutdown(0)
+        self._finish_close(*state, exc=ConnectionClosedError(f"receive pump crashed:\n{detail}"))
 
     def _start_connect(self, address, password, attempts, attempt_interval):
         self._check_open()
@@ -405,10 +417,12 @@ class Peer:
             self._pending_pings.clear()
         return connections, pending_connects, pending_pings
 
-    def _finish_close(self, connections, pending_connects, pending_pings) -> None:
+    def _finish_close(self, connections, pending_connects, pending_pings, exc: ConnectionClosed | None = None) -> None:
+        if exc is None:
+            exc = ConnectionClosedOK("peer closed")
         for connection in connections:
             connection._closed = True
-            connection._mailbox.close(ConnectionClosedOK("peer closed"))
+            connection._mailbox.close(exc)
         for pending in pending_connects:
             pending.reason = raw.DefaultMessageIDTypes.ID_CONNECTION_ATTEMPT_FAILED
             pending.event.set()
