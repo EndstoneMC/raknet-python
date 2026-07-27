@@ -1,10 +1,10 @@
 [build-system]
-requires = ["conan-py-build>=0.6.1"]
+requires = ["conan-py-build>=0.6.1", "cmake"]
 build-backend = "conan_py_build.build"
 
 [project]
 name = "raknet"
-version = "0.4.0.dev0"
+version = "0.4.0"
 authors = [
     { name = "Vincent Wu", email = "magicdroidx@gmail.com" }
 ]
@@ -31,9 +31,24 @@ Issues = "https://github.com/raknet-python/raknet-python/issues"
 [tool.conan-py-build]
 extra-profile = "cpp17.profile"
 
+[tool.conan-py-build.sdist]
+include = ["cpp17.profile"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
 lint.extend-select = ["I", "E", "F"]
+
+[tool.cibuildwheel]
+# One abi3 wheel per platform; the cp312-abi3 tag is pinned in cpp17.profile.
+build = "cp312-*"
+build-verbosity = 1
+test-requires = "pytest"
+test-command = "pytest {project}/tests"
+# The raknet recipe lives on the endstone remote; conan-py-build builds it with --build=missing.
+before-build = "pip install conan && conan remote add endstone https://conan.cloudsmith.io/endstone/conan/ --index 0 --force"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
