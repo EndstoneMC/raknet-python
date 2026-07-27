@@ -7,6 +7,7 @@
 #include <RakNetVersion.h>
 #include <RakPeerInterface.h>
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -291,7 +292,6 @@ NB_MODULE(_raknet, m)
         .def("set_port_host_order", &RakNet::SystemAddress::SetPortHostOrder, nb::arg("port"))
         .def("set_port_network_order", nb::overload_cast<unsigned short>(&RakNet::SystemAddress::SetPortNetworkOrder),
              nb::arg("port"))
-        .def("is_lan_address", &RakNet::SystemAddress::IsLANAddress)
         .def(nb::self == nb::self)
         .def(nb::self != nb::self)
         .def(nb::self < nb::self)
@@ -394,8 +394,10 @@ NB_MODULE(_raknet, m)
         .def(
             "to_string",
             [](RakNet::RakNetStatistics &self, int verbosity_level) {
+                // StatisticsToString writes a fixed-format report; verbosity 0-2 selects how many
+                // fixed blocks print. 4096 clears the largest (verbosity 2) output with room to spare.
                 char buffer[4096];
-                RakNet::StatisticsToString(&self, buffer, verbosity_level);
+                RakNet::StatisticsToString(&self, buffer, std::clamp(verbosity_level, 0, 2));
                 return std::string(buffer);
             },
             nb::arg("verbosity_level") = 0)
