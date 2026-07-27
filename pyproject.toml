@@ -30,3 +30,10 @@ Issues = "https://github.com/raknet-python/raknet-python/issues"
 
 [tool.conan-py-build]
 extra-profile = "cpp17.profile"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+lint.extend-select = ["I", "E", "F"]
